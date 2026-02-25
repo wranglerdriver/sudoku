@@ -1,0 +1,770 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sudoku Solver</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #111827;
+      --line: #334155;
+      --thick: #94a3b8;
+      --text: #e5e7eb;
+      --muted: #94a3b8;
+      --accent: #22c55e;
+      --danger: #ef4444;
+      --hl: #1e3a8a;
+      --hl-soft: #172554;
+      --hl-value: #7c3aed;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      background: radial-gradient(circle at top, #1e293b, var(--bg));
+      color: var(--text);
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+
+    .wrap {
+      width: min(96vw, 760px);
+      background: color-mix(in srgb, var(--card) 92%, black);
+      border: 1px solid #1f2937;
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35);
+    }
+
+    h1 { margin: 0 0 6px; font-size: 1.4rem; }
+    p { margin: 0 0 14px; color: var(--muted); font-size: .95rem; }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(9, 1fr);
+      gap: 0;
+      border: 2px solid var(--thick);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #0b1220;
+      user-select: none;
+    }
+
+    .cell-wrap {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 1 / 1;
+      border: 1px solid var(--line);
+      background: #0b1220;
+    }
+
+    .cell-wrap.c-r2, .cell-wrap.c-r5 { border-bottom: 2px solid var(--thick); }
+    .cell-wrap.c-c2, .cell-wrap.c-c5 { border-right: 2px solid var(--thick); }
+
+    .cell {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      text-align: center;
+      font-size: clamp(16px, 2.8vw, 28px);
+      font-weight: 600;
+      background: transparent;
+      color: var(--text);
+      outline: none;
+      z-index: 2;
+      caret-color: transparent;
+    }
+
+    .given .cell {
+      color: #93c5fd;
+      font-weight: 800;
+    }
+
+    .notes {
+      position: absolute;
+      inset: 5px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      grid-template-rows: repeat(3, 1fr);
+      gap: 1px;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .note {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: clamp(8px, 1.2vw, 11px);
+      color: #9ca3af;
+      line-height: 1;
+      opacity: 0;
+    }
+
+    .note.on { opacity: .95; }
+    .note.match {
+      font-weight: 800;
+      color: #f5d0fe;
+      text-shadow: 0 0 6px rgba(245, 208, 254, 0.35);
+    }
+
+    .cell-wrap.related { background: var(--hl-soft); }
+    .cell-wrap.active { background: var(--hl); }
+    .cell-wrap.same-value {
+      background: color-mix(in srgb, var(--hl-value) 35%, #0b1220);
+    }
+    .cell-wrap.same-value .cell {
+      font-weight: 900;
+      color: #e9d5ff;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .controls, .generator {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    button {
+      border: 1px solid #374151;
+      background: #1f2937;
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    button:hover { filter: brightness(1.08); }
+
+    .solve { background: #14532d; border-color: #166534; }
+    .clear { background: #3f1d1d; border-color: #7f1d1d; }
+    .pencil.active { background: #1d4ed8; border-color: #2563eb; }
+
+    .status {
+      margin-top: 12px;
+      font-size: .95rem;
+      min-height: 1.4em;
+    }
+    .ok { color: var(--accent); }
+    .err { color: var(--danger); }
+
+    .examples {
+      margin-top: 10px;
+      font-size: .9rem;
+      color: var(--muted);
+    }
+
+    code { color: #a7f3d0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Sudoku Solver</h1>
+    <p>
+      Normal mode enters values. <strong>Pencil mode</strong> toggles candidate marks (1–9).<br/>
+      Click any cell to highlight row, column, 3×3 block, and matching numbers.
+    </p>
+
+    <div id="board" class="board" aria-label="Sudoku board"></div>
+
+    <div class="toolbar">
+      <div class="controls">
+        <button id="pencilBtn" class="pencil">Pencil: OFF</button>
+        <button id="validateBtn">Validate</button>
+        <button id="eraseBtn">Erase Cell</button>
+        <button id="undoBtn">Undo</button>
+        <button class="clear" id="clearBtn">Clear</button>
+        <button class="solve" id="solveBtn">Solve</button>
+      </div>
+
+      <div class="generator">
+        <button data-diff="easy" class="genBtn">Generate Easy</button>
+        <button data-diff="medium" class="genBtn">Generate Medium</button>
+        <button data-diff="hard" class="genBtn">Generate Hard</button>
+        <button id="exampleBtn">Load Example</button>
+      </div>
+    </div>
+
+    <div id="status" class="status"></div>
+    <div class="examples">Tip: paste an 81-char puzzle string (0 or . for blanks), e.g. <code>530070000600195000...</code></div>
+  </div>
+
+  <script>
+    const boardEl = document.getElementById('board');
+    const statusEl = document.getElementById('status');
+
+    const cells = []; // input refs
+    const wraps = []; // wrapper refs
+    const notesEls = []; // 9 note refs per cell
+    const candidates = Array.from({ length: 9 }, () =>
+      Array.from({ length: 9 }, () => new Set())
+    );
+
+    let pencilMode = false;
+    let activeCell = null; // {r,c}
+    let currentSolution = null; // for generated/example puzzles
+    const undoStack = [];
+    const UNDO_LIMIT = 200;
+
+    const DIFFICULTY_CLUES = {
+      easy: 40,
+      medium: 32,
+      hard: 26
+    };
+
+    function setStatus(msg, type = '') {
+      statusEl.className = 'status ' + type;
+      statusEl.textContent = msg;
+    }
+
+    function captureState() {
+      return {
+        grid: getGrid(),
+        givens: wraps.map(row => row.map(w => w.classList.contains('given'))),
+        notes: candidates.map(row => row.map(set => Array.from(set))),
+        currentSolution: currentSolution ? currentSolution.map(r => r.slice()) : null
+      };
+    }
+
+    function restoreState(state) {
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          const v = state.grid[r][c] || '';
+          cells[r][c].value = v;
+          const isGiven = !!state.givens[r][c];
+          wraps[r][c].classList.toggle('given', isGiven);
+          cells[r][c].readOnly = isGiven;
+          candidates[r][c].clear();
+          for (const n of state.notes[r][c]) candidates[r][c].add(n);
+          refreshCellNotes(r, c);
+        }
+      }
+      currentSolution = state.currentSolution ? state.currentSolution.map(r => r.slice()) : null;
+      applyHighlights();
+    }
+
+    function pushUndoState() {
+      undoStack.push(captureState());
+      if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+    }
+
+    function shuffle(arr) {
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+      }
+      return arr;
+    }
+
+    function buildBoard() {
+      for (let r = 0; r < 9; r++) {
+        cells[r] = [];
+        wraps[r] = [];
+        notesEls[r] = [];
+
+        for (let c = 0; c < 9; c++) {
+          const wrap = document.createElement('div');
+          wrap.className = `cell-wrap ${r===2||r===5?'c-r'+r:''} ${c===2||c===5?'c-c'+c:''}`.trim();
+          wrap.dataset.r = r;
+          wrap.dataset.c = c;
+
+          const notes = document.createElement('div');
+          notes.className = 'notes';
+          const noteRefs = [];
+          for (let n = 1; n <= 9; n++) {
+            const span = document.createElement('span');
+            span.className = 'note';
+            span.textContent = String(n);
+            notes.appendChild(span);
+            noteRefs.push(span);
+          }
+
+          const input = document.createElement('input');
+          input.className = 'cell';
+          input.maxLength = 1;
+          input.inputMode = 'numeric';
+          input.autocomplete = 'off';
+          input.setAttribute('aria-label', `Row ${r + 1} Column ${c + 1}`);
+
+          input.addEventListener('focus', () => {
+            activeCell = { r, c };
+            applyHighlights();
+          });
+
+          input.addEventListener('click', () => {
+            activeCell = { r, c };
+            applyHighlights();
+          });
+
+          input.addEventListener('keydown', (e) => {
+            const key = e.key;
+
+            if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(key)) {
+              e.preventDefault();
+              moveFocus(r, c, key);
+              return;
+            }
+
+            if (key === 'Backspace' || key === 'Delete' || key === '0') {
+              e.preventDefault();
+              if (wrap.classList.contains('given')) return;
+              if (input.value || candidates[r][c].size) pushUndoState();
+              input.value = '';
+              candidates[r][c].clear();
+              refreshCellNotes(r, c);
+              setStatus('');
+              applyHighlights();
+              return;
+            }
+
+            if (!/^[1-9]$/.test(key)) return;
+            e.preventDefault();
+
+            if (wrap.classList.contains('given')) return;
+
+            if (pencilMode) {
+              if (input.value) return; // no notes in solved cell
+              pushUndoState();
+              const n = Number(key);
+              if (candidates[r][c].has(n)) candidates[r][c].delete(n);
+              else candidates[r][c].add(n);
+              refreshCellNotes(r, c);
+            } else {
+              if (input.value !== key || candidates[r][c].size) pushUndoState();
+              input.value = key;
+              candidates[r][c].clear();
+              refreshCellNotes(r, c);
+              clearPeerCandidateMarks(r, c, Number(key));
+            }
+
+            setStatus('');
+            applyHighlights();
+          });
+
+          input.addEventListener('paste', (e) => {
+            const txt = (e.clipboardData || window.clipboardData).getData('text').trim();
+            if (/^[0-9.]{81}$/.test(txt)) {
+              e.preventDefault();
+              loadFromString(txt);
+              setStatus('Puzzle pasted.', 'ok');
+            }
+          });
+
+          wrap.appendChild(notes);
+          wrap.appendChild(input);
+          boardEl.appendChild(wrap);
+
+          cells[r][c] = input;
+          wraps[r][c] = wrap;
+          notesEls[r][c] = noteRefs;
+        }
+      }
+    }
+
+    function moveFocus(r, c, arrow) {
+      let nr = r, nc = c;
+      if (arrow === 'ArrowUp') nr = (r + 8) % 9;
+      if (arrow === 'ArrowDown') nr = (r + 1) % 9;
+      if (arrow === 'ArrowLeft') nc = (c + 8) % 9;
+      if (arrow === 'ArrowRight') nc = (c + 1) % 9;
+      cells[nr][nc].focus();
+    }
+
+    function refreshCellNotes(r, c) {
+      const val = cells[r][c].value;
+      const refs = notesEls[r][c];
+      for (let n = 1; n <= 9; n++) {
+        refs[n - 1].classList.toggle('on', !val && candidates[r][c].has(n));
+      }
+    }
+
+    function clearAllNotes() {
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          candidates[r][c].clear();
+          refreshCellNotes(r, c);
+        }
+      }
+    }
+
+    function clearPeerCandidateMarks(row, col, val) {
+      if (!val) return;
+      const sr = Math.floor(row / 3) * 3;
+      const sc = Math.floor(col / 3) * 3;
+
+      for (let i = 0; i < 9; i++) {
+        if (i !== col && !cells[row][i].value) {
+          candidates[row][i].delete(val);
+          refreshCellNotes(row, i);
+        }
+        if (i !== row && !cells[i][col].value) {
+          candidates[i][col].delete(val);
+          refreshCellNotes(i, col);
+        }
+      }
+
+      for (let r = sr; r < sr + 3; r++) {
+        for (let c = sc; c < sc + 3; c++) {
+          if ((r !== row || c !== col) && !cells[r][c].value) {
+            candidates[r][c].delete(val);
+            refreshCellNotes(r, c);
+          }
+        }
+      }
+    }
+
+    function isGridComplete(grid) {
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          if (grid[r][c] === 0) return false;
+        }
+      }
+      return true;
+    }
+
+    function getGrid() {
+      return cells.map(row => row.map(cell => {
+        const n = parseInt(cell.value, 10);
+        return Number.isInteger(n) ? n : 0;
+      }));
+    }
+
+    function setGrid(grid, markGiven = false) {
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          const v = grid[r][c] || '';
+          cells[r][c].value = v;
+          if (markGiven) {
+            wraps[r][c].classList.toggle('given', !!v);
+            cells[r][c].readOnly = !!v;
+          } else {
+            wraps[r][c].classList.remove('given');
+            cells[r][c].readOnly = false;
+          }
+          candidates[r][c].clear();
+          refreshCellNotes(r, c);
+        }
+      }
+      applyHighlights();
+    }
+
+    function isValidAt(grid, row, col, val) {
+      for (let i = 0; i < 9; i++) {
+        if (i !== col && grid[row][i] === val) return false;
+        if (i !== row && grid[i][col] === val) return false;
+      }
+      const sr = Math.floor(row / 3) * 3;
+      const sc = Math.floor(col / 3) * 3;
+      for (let r = sr; r < sr + 3; r++) {
+        for (let c = sc; c < sc + 3; c++) {
+          if ((r !== row || c !== col) && grid[r][c] === val) return false;
+        }
+      }
+      return true;
+    }
+
+    function validateGrid(grid) {
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          const v = grid[r][c];
+          if (v !== 0 && !isValidAt(grid, r, c, v)) return false;
+        }
+      }
+      return true;
+    }
+
+    function findEmpty(grid) {
+      let best = null;
+      let bestCount = 10;
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          if (grid[r][c] !== 0) continue;
+          const cand = getCandidatesFor(grid, r, c);
+          if (cand.length < bestCount) {
+            best = [r, c, cand];
+            bestCount = cand.length;
+            if (bestCount === 1) return best;
+          }
+        }
+      }
+      return best;
+    }
+
+    function getCandidatesFor(grid, r, c) {
+      const out = [];
+      for (let n = 1; n <= 9; n++) {
+        if (isValidAt(grid, r, c, n)) out.push(n);
+      }
+      return out;
+    }
+
+    function solve(grid, randomize = false) {
+      const spot = findEmpty(grid);
+      if (!spot) return true;
+      const [r, c, candRaw] = spot;
+      const cand = randomize ? shuffle(candRaw.slice()) : candRaw;
+
+      for (const n of cand) {
+        grid[r][c] = n;
+        if (solve(grid, randomize)) return true;
+        grid[r][c] = 0;
+      }
+      return false;
+    }
+
+    function countSolutions(grid, limit = 2) {
+      const spot = findEmpty(grid);
+      if (!spot) return 1;
+      const [r, c, cand] = spot;
+      let count = 0;
+      for (const n of cand) {
+        grid[r][c] = n;
+        count += countSolutions(grid, limit);
+        if (count >= limit) break;
+        grid[r][c] = 0;
+      }
+      grid[r][c] = 0;
+      return count;
+    }
+
+    function makeSolvedGrid() {
+      const grid = Array.from({ length: 9 }, () => Array(9).fill(0));
+      solve(grid, true);
+      return grid;
+    }
+
+    function generatePuzzle(difficulty = 'medium') {
+      const cluesTarget = DIFFICULTY_CLUES[difficulty] || DIFFICULTY_CLUES.medium;
+      const solved = makeSolvedGrid();
+      const puzzle = solved.map(row => row.slice());
+
+      const coords = [];
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) coords.push([r, c]);
+      }
+      shuffle(coords);
+
+      let clues = 81;
+      for (const [r, c] of coords) {
+        if (clues <= cluesTarget) break;
+        const keep = puzzle[r][c];
+        puzzle[r][c] = 0;
+
+        const test = puzzle.map(row => row.slice());
+        const sols = countSolutions(test, 2);
+        if (sols !== 1) {
+          puzzle[r][c] = keep;
+        } else {
+          clues--;
+        }
+      }
+      return puzzle;
+    }
+
+    function loadFromString(str) {
+      const chars = str.replace(/\s/g, '').replace(/\./g, '0');
+      if (!/^[0-9]{81}$/.test(chars)) return false;
+
+      const grid = [];
+      for (let r = 0; r < 9; r++) {
+        grid[r] = [];
+        for (let c = 0; c < 9; c++) {
+          grid[r][c] = parseInt(chars[r * 9 + c], 10);
+        }
+      }
+
+      setGrid(grid, true);
+      clearAllNotes();
+      currentSolution = null;
+      return true;
+    }
+
+    function autoFillCandidates() {
+      const grid = getGrid();
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          candidates[r][c].clear();
+          if (grid[r][c] !== 0) {
+            refreshCellNotes(r, c);
+            continue;
+          }
+          for (const n of getCandidatesFor(grid, r, c)) candidates[r][c].add(n);
+          refreshCellNotes(r, c);
+        }
+      }
+    }
+
+    function applyHighlights() {
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          wraps[r][c].classList.remove('related', 'active', 'same-value');
+          for (let n = 0; n < 9; n++) notesEls[r][c][n].classList.remove('match');
+        }
+      }
+      if (!activeCell) return;
+
+      const { r: ar, c: ac } = activeCell;
+      const selectedVal = Number(cells[ar][ac].value || 0);
+
+      const sr = Math.floor(ar / 3) * 3;
+      const sc = Math.floor(ac / 3) * 3;
+
+      for (let r = 0; r < 9; r++) {
+        for (let c = 0; c < 9; c++) {
+          const sameRow = r === ar;
+          const sameCol = c === ac;
+          const sameBlock = r >= sr && r < sr + 3 && c >= sc && c < sc + 3;
+          if (sameRow || sameCol || sameBlock) wraps[r][c].classList.add('related');
+
+          if (selectedVal && Number(cells[r][c].value) === selectedVal) {
+            wraps[r][c].classList.add('same-value');
+          }
+          if (selectedVal && candidates[r][c].has(selectedVal)) {
+            notesEls[r][c][selectedVal - 1].classList.add('match');
+          }
+        }
+      }
+
+      wraps[ar][ac].classList.add('active');
+    }
+
+    function setPencilMode(on) {
+      pencilMode = on;
+      const btn = document.getElementById('pencilBtn');
+      btn.classList.toggle('active', on);
+      btn.textContent = `Pencil: ${on ? 'ON' : 'OFF'}`;
+    }
+
+    document.getElementById('validateBtn').addEventListener('click', () => {
+      const grid = getGrid();
+      if (!validateGrid(grid)) {
+        setStatus('Current puzzle has conflicts.', 'err');
+        return;
+      }
+
+      if (currentSolution) {
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            if (grid[r][c] !== 0 && grid[r][c] !== currentSolution[r][c]) {
+              setStatus('At least one value is incorrect for this puzzle.', 'err');
+              return;
+            }
+          }
+        }
+      }
+
+      if (isGridComplete(grid)) {
+        setStatus('Puzzle solved.', 'ok');
+      } else {
+        setStatus('No conflicts found.', 'ok');
+      }
+    });
+
+    document.getElementById('solveBtn').addEventListener('click', () => {
+      const grid = getGrid();
+      if (!validateGrid(grid)) {
+        setStatus('Cannot solve: puzzle has conflicts.', 'err');
+        return;
+      }
+      const copy = grid.map(row => row.slice());
+      if (solve(copy)) {
+        pushUndoState();
+        setGrid(copy, false);
+        currentSolution = copy.map(r => r.slice());
+        setStatus('Solved.', 'ok');
+      } else {
+        setStatus('No solution found for this puzzle.', 'err');
+      }
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', () => {
+      pushUndoState();
+      setGrid(Array.from({ length: 9 }, () => Array(9).fill(0)), false);
+      clearAllNotes();
+      currentSolution = null;
+      setStatus('Cleared.');
+    });
+
+    document.getElementById('exampleBtn').addEventListener('click', () => {
+      pushUndoState();
+      const example = '530070000600195000098000060800060003400803001700020006060000280000419005000080079';
+      loadFromString(example);
+      const solved = getGrid().map(r => r.slice());
+      if (solve(solved)) currentSolution = solved;
+      setStatus('Example puzzle loaded.', 'ok');
+    });
+
+    document.getElementById('pencilBtn').addEventListener('click', () => {
+      setPencilMode(!pencilMode);
+      setStatus(pencilMode ? 'Pencil mode ON.' : 'Pencil mode OFF.', 'ok');
+      if (activeCell) cells[activeCell.r][activeCell.c].focus();
+    });
+
+    document.getElementById('eraseBtn').addEventListener('click', () => {
+      if (!activeCell) {
+        setStatus('Select a cell first.', 'err');
+        return;
+      }
+      const { r, c } = activeCell;
+      if (wraps[r][c].classList.contains('given')) {
+        setStatus('Given cells cannot be erased.', 'err');
+        return;
+      }
+      if (!cells[r][c].value && candidates[r][c].size === 0) return;
+      pushUndoState();
+      cells[r][c].value = '';
+      candidates[r][c].clear();
+      refreshCellNotes(r, c);
+      setStatus('Cell erased.', 'ok');
+      cells[r][c].focus();
+      applyHighlights();
+    });
+
+    document.getElementById('undoBtn').addEventListener('click', () => {
+      const prev = undoStack.pop();
+      if (!prev) {
+        setStatus('Nothing to undo.', 'err');
+        return;
+      }
+      restoreState(prev);
+      setStatus('Undid last action.', 'ok');
+      if (activeCell) cells[activeCell.r][activeCell.c].focus();
+    });
+
+    document.querySelectorAll('.genBtn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const difficulty = btn.dataset.diff;
+        setStatus(`Generating ${difficulty} puzzle...`);
+
+        // yield to UI before generation starts
+        setTimeout(() => {
+          pushUndoState();
+          const puzzle = generatePuzzle(difficulty);
+          setGrid(puzzle, true);
+          const solved = puzzle.map(r => r.slice());
+          currentSolution = solve(solved) ? solved : null;
+          setStatus(`Generated ${difficulty} puzzle.`, 'ok');
+        }, 0);
+      });
+    });
+
+    buildBoard();
+    setPencilMode(false);
+    cells[0][0].focus();
+  </script>
+</body>
+</html>
