@@ -334,13 +334,11 @@
                 return;
               }
 
-              // Ignore 0 key - not a valid Sudoku digit
-              if (key === '0') {
+              // Only allow digits 1-9, block everything else
+              if (!/^[1-9]$/.test(key)) {
                 e.preventDefault();
                 return;
               }
-
-              if (!/^[1-9]$/.test(key)) return;
               e.preventDefault();
 
               if (wrap.classList.contains('given')) return;
