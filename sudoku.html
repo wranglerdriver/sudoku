@@ -125,6 +125,60 @@
       color: #e9d5ff;
     }
 
+    @keyframes unitPulse {
+      0% { transform: scale(1); filter: brightness(1); }
+      35% { transform: scale(1.04); filter: brightness(1.35); }
+      100% { transform: scale(1); filter: brightness(1); }
+    }
+
+    @keyframes solvePop {
+      0% { transform: scale(0.5); opacity: 0; }
+      65% { transform: scale(1.15); opacity: 1; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    @keyframes boardGlow {
+      0% { box-shadow: 0 0 0 rgba(34, 197, 94, 0); }
+      50% { box-shadow: 0 0 24px rgba(34, 197, 94, 0.5); }
+      100% { box-shadow: 0 0 0 rgba(34, 197, 94, 0); }
+    }
+
+    .cell-wrap.flash-row { background: color-mix(in srgb, #22c55e 35%, #0b1220); animation: unitPulse .55s ease; }
+    .cell-wrap.flash-col { background: color-mix(in srgb, #06b6d4 35%, #0b1220); animation: unitPulse .55s ease; }
+    .cell-wrap.flash-block { background: color-mix(in srgb, #f59e0b 35%, #0b1220); animation: unitPulse .55s ease; }
+
+    .cell.solve-pop .cell {
+      animation: solvePop .35s ease;
+      color: #bbf7d0;
+    }
+
+    .board.solve-glow {
+      animation: boardGlow 1.1s ease;
+    }
+
+    .confetti-layer {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      overflow: hidden;
+      z-index: 9999;
+    }
+
+    .confetti-piece {
+      position: absolute;
+      top: -10px;
+      width: 10px;
+      height: 14px;
+      border-radius: 2px;
+      opacity: 0.95;
+      animation: confettiFall 1400ms linear forwards;
+    }
+
+    @keyframes confettiFall {
+      0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 1; }
+      100% { transform: translate3d(var(--tx, 0px), 105vh, 0) rotate(var(--rot, 540deg)); opacity: 0; }
+    }
+
     .toolbar {
       display: grid;
       grid-template-columns: 1fr;
@@ -220,6 +274,7 @@
       let pencilMode = false;
       let activeCell = null; // {r,c}
       let currentSolution = null; // for generated/example puzzles
+      let hasCelebratedManualWin = false;
       const undoStack = [];
       const UNDO_LIMIT = 200;
 
@@ -326,6 +381,7 @@
                 e.preventDefault();
                 if (wrap.classList.contains('given')) return;
                 if (input.value || candidates[r][c].size) pushUndoState();
+                hasCelebratedManualWin = false;
                 input.value = '';
                 candidates[r][c].clear();
                 refreshCellNotes(r, c);
@@ -345,6 +401,7 @@
 
               if (pencilMode) {
                 if (input.value) return; // no notes in solved cell
+                hasCelebratedManualWin = false;
                 pushUndoState();
                 const n = Number(key);
                 if (candidates[r][c].has(n)) candidates[r][c].delete(n);
@@ -352,13 +409,16 @@
                 refreshCellNotes(r, c);
               } else {
                 if (input.value !== key || candidates[r][c].size) pushUndoState();
+                hasCelebratedManualWin = false;
                 input.value = key;
                 candidates[r][c].clear();
                 refreshCellNotes(r, c);
                 clearPeerCandidateMarks(r, c, Number(key));
+                maybeCelebrateUnitsAt(r, c);
+                maybeCelebrateManualWin();
               }
 
-              setStatus('');
+              if (!hasCelebratedManualWin) setStatus('');
               applyHighlights();
             });
 
@@ -451,6 +511,7 @@
       }
 
       function setGrid(grid, markGiven = false) {
+        hasCelebratedManualWin = false;
         for (let r = 0; r < 9; r++) {
           for (let c = 0; c < 9; c++) {
             const v = grid[r][c] || '';
@@ -649,6 +710,105 @@
         wraps[ar][ac].classList.add('active');
       }
 
+      function flashCells(coords, className, ms = 650) {
+        for (const [r, c] of coords) wraps[r][c].classList.add(className);
+        setTimeout(() => {
+          for (const [r, c] of coords) wraps[r][c].classList.remove(className);
+        }, ms);
+      }
+
+      function isUnitComplete(values) {
+        if (values.some(v => v < 1 || v > 9)) return false;
+        return new Set(values).size === 9;
+      }
+
+      function maybeCelebrateUnitsAt(r, c) {
+        const grid = getGrid();
+
+        const rowVals = grid[r];
+        if (isUnitComplete(rowVals)) {
+          const rowCells = Array.from({ length: 9 }, (_, i) => [r, i]);
+          flashCells(rowCells, 'flash-row');
+        }
+
+        const colVals = Array.from({ length: 9 }, (_, i) => grid[i][c]);
+        if (isUnitComplete(colVals)) {
+          const colCells = Array.from({ length: 9 }, (_, i) => [i, c]);
+          flashCells(colCells, 'flash-col');
+        }
+
+        const sr = Math.floor(r / 3) * 3;
+        const sc = Math.floor(c / 3) * 3;
+        const blockVals = [];
+        const blockCells = [];
+        for (let rr = sr; rr < sr + 3; rr++) {
+          for (let cc = sc; cc < sc + 3; cc++) {
+            blockVals.push(grid[rr][cc]);
+            blockCells.push([rr, cc]);
+          }
+        }
+        if (isUnitComplete(blockVals)) flashCells(blockCells, 'flash-block');
+      }
+
+      function animateSolveProgress(beforeGrid, solvedGrid) {
+        boardEl.classList.add('solve-glow');
+        setTimeout(() => boardEl.classList.remove('solve-glow'), 1100);
+
+        let delay = 0;
+        for (let r = 0; r < 9; r++) {
+          for (let c = 0; c < 9; c++) {
+            if (beforeGrid[r][c] === 0 && solvedGrid[r][c] !== 0) {
+              const wrap = wraps[r][c];
+              setTimeout(() => {
+                wrap.classList.add('solve-pop');
+                setTimeout(() => wrap.classList.remove('solve-pop'), 380);
+              }, delay);
+              delay += 24;
+            }
+          }
+        }
+      }
+
+      function launchConfetti(burst = 120) {
+        const layer = document.createElement('div');
+        layer.className = 'confetti-layer';
+        const colors = ['#22c55e', '#06b6d4', '#f59e0b', '#e879f9', '#f43f5e', '#fde047'];
+
+        for (let i = 0; i < burst; i++) {
+          const piece = document.createElement('span');
+          piece.className = 'confetti-piece';
+          piece.style.left = `${Math.random() * 100}vw`;
+          piece.style.background = colors[Math.floor(Math.random() * colors.length)];
+          piece.style.setProperty('--tx', `${(Math.random() - 0.5) * 220}px`);
+          piece.style.setProperty('--rot', `${(Math.random() * 1080 - 540).toFixed(0)}deg`);
+          piece.style.animationDuration = `${1000 + Math.random() * 1200}ms`;
+          piece.style.animationDelay = `${Math.random() * 250}ms`;
+          layer.appendChild(piece);
+        }
+
+        document.body.appendChild(layer);
+        setTimeout(() => layer.remove(), 2600);
+      }
+
+      function maybeCelebrateManualWin() {
+        if (hasCelebratedManualWin) return;
+        const grid = getGrid();
+        if (!isGridComplete(grid)) return;
+        if (!validateGrid(grid)) return;
+
+        if (currentSolution) {
+          for (let r = 0; r < 9; r++) {
+            for (let c = 0; c < 9; c++) {
+              if (grid[r][c] !== currentSolution[r][c]) return;
+            }
+          }
+        }
+
+        hasCelebratedManualWin = true;
+        launchConfetti(140);
+        setStatus('Boom. Puzzle completed. 🎉', 'ok');
+      }
+
       function setPencilMode(on) {
         pencilMode = on;
         const btn = document.getElementById('pencilBtn');
@@ -687,10 +847,12 @@
           setStatus('Cannot solve: puzzle has conflicts.', 'err');
           return;
         }
+        const before = grid.map(row => row.slice());
         const copy = grid.map(row => row.slice());
         if (solve(copy)) {
           pushUndoState();
           setGrid(copy, false);
+          animateSolveProgress(before, copy);
           currentSolution = copy.map(r => r.slice());
           setStatus('Solved.', 'ok');
         } else {
