@@ -147,7 +147,7 @@
     .cell-wrap.flash-col { background: color-mix(in srgb, #06b6d4 35%, #0b1220); animation: unitPulse .55s ease; }
     .cell-wrap.flash-block { background: color-mix(in srgb, #f59e0b 35%, #0b1220); animation: unitPulse .55s ease; }
 
-    .cell.solve-pop .cell {
+    .cell-wrap.solve-pop .cell {
       animation: solvePop .35s ease;
       color: #bbf7d0;
     }
@@ -426,6 +426,7 @@
               const txt = e.clipboardData.getData('text').trim();
               if (/^[0-9.]{81}$/.test(txt)) {
                 e.preventDefault();
+                pushUndoState();
                 loadFromString(txt);
                 setStatus('Puzzle pasted.', 'ok');
               }
@@ -919,15 +920,16 @@
           const difficulty = btn.dataset.diff;
           setStatus(`Generating ${difficulty} puzzle...`);
 
-          // Use requestAnimationFrame for better UI yielding
-          requestAnimationFrame(() => {
+          // rAF fires before paint; the inner setTimeout lets the
+          // "Generating..." status render before generation blocks.
+          requestAnimationFrame(() => setTimeout(() => {
             pushUndoState();
             const puzzle = generatePuzzle(difficulty);
             setGrid(puzzle, true);
             const solved = puzzle.map(r => r.slice());
             currentSolution = solve(solved) ? solved : null;
             setStatus(`Generated ${difficulty} puzzle.`, 'ok');
-          });
+          }, 0));
         });
       });
 

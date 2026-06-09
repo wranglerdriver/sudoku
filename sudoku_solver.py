@@ -69,6 +69,21 @@ def is_valid(grid: Grid, r: int, c: int, n: int) -> bool:
     return True
 
 
+def validate_givens(grid: Grid) -> bool:
+    """Return True if all filled cells obey Sudoku rules."""
+    for r in range(9):
+        for c in range(9):
+            n = grid[r][c]
+            if n == 0:
+                continue
+            grid[r][c] = 0
+            ok = is_valid(grid, r, c, n)
+            grid[r][c] = n
+            if not ok:
+                return False
+    return True
+
+
 def find_empty_with_fewest_candidates(grid: Grid) -> Optional[Tuple[int, int, List[int]]]:
     """
     Pick the next empty cell using MRV heuristic (fewest candidates first).
@@ -128,6 +143,10 @@ def main() -> int:
         grid = parse_input(raw)
     except ValueError as e:
         print(f"Input error: {e}")
+        return 2
+
+    if not validate_givens(grid):
+        print("Input error: puzzle has conflicting givens.")
         return 2
 
     if solve(grid):
